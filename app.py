@@ -1,4 +1,5 @@
 from flask import Flask, request
+import subprocess
 
 app = Flask(__name__)
 
@@ -14,5 +15,18 @@ def hello():
     return f"Hello, {name}!"
 
 
+@app.route("/ping")
+def ping():
+    host = request.args.get("host", "127.0.0.1")
+
+    result = subprocess.run(
+        ["ping", "-c", "1", host],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    return result.stdout
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+    app.run(host="127.0.0.1", port=8080)
