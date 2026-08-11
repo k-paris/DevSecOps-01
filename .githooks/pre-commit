@@ -1,17 +1,165 @@
 #!/usr/bin/env bash
-set -e
 
-PATTERN='(github_pat_[A-Za-z0-9_]+|ghp_[A-Za-z0-9]+|gho_[A-Za-z0-9]+|ghu_[A-Za-z0-9]+|ghs_[A-Za-z0-9]+|ghr_[A-Za-z0-9]+|AKIA[A-Z0-9]{16}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----)'
+set -euo pipefail
 
-MATCHES=$(git diff --cached --no-color --unified=0 | grep -E '^\+' | grep -Ev '^\+\+\+' | grep -E "$PATTERN" || true)
+#
+# 1. Known secret formats
+#
+KNOWN_SECRET_PATTERN='(github_pat_[A-Za-z0-9_]+|ghp_[A-Za-z0-9]+|gho_[A-Za-z0-9]+|ghu_[A-Za-z0-9]+|ghs_[A-Za-z0-9]+|ghr_[A-Za-z0-9]+|AKIA[A-Z0-9]{16}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----)'
 
-if [ -n "$MATCHES" ]; then
-    echo "ERROR: Possible secret detected in staged changes:"
+#
+# 2. Variable names that commonly contain secrets
+#
+SECRET_NAME_PATTERN='(password|passwd|pass|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|secret[_-]?key|client[_-]?secret|auth[_-]?token)'
+
+#
+# Get only NEW/CHANGED staged lines.
+#
+STAGED_LINES=$(
+    git diff --cached --no-color --unified=0 \
+        | grep -E '^\+' \
+        | grep -Ev '^\+\+\+' \
+        || true
+)
+
+#
+# ------------------------------------------------------------
+# Check 1: Known credential formats
+# ------------------------------------------------------------
+#
+KNOWN_MATCHES=$(
+    printf '%s\n' "$STAGED_LINES" \
+        | grep -E "$KNOWN_SECRET_PATTERN" \
+        || true
+)
+
+if [ -n "$KNOWN_MATCHES" ]; then
+    echo "ERROR: Known secret pattern detected:"
     echo
-    echo "$MATCHES"
+    echo "$KNOWN_MATCHES"
     echo
     echo "Commit blocked."
     exit 1
 fi
+
+
+#
+# ------------------------------------------------------------
+# Check 2: Generic hard-coded credentials
+# ------------------------------------------------------------
+#
+
+while IFS= read -r line; do
+
+    # Remove '+' added by git diff
+    line="${line#+}"
+   
+    # Ignore comments
+    if [[ "$line" =~ ^[[:space:]]*# ]]; then
+        continue
+    fi
+  
+    #
+    # Does this line look like:
+    #
+    # password = ...
+    # password: ...
+    # "password": ...
+    #
+    if [[ "$line" =~ [\"\']?${SECRET_NAME_PATTERN}[\"\']?[[:space:]]*[:=][[:space:]]*(.+) ]]; then
+
+        value="${BASH_REMATCH[2]}"
+
+        #
+        # Remove leading/trailing whitespace
+        #
+        value="$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+
+        #
+        # ----------------------------------------------------
+        # Allowed references — NOT hard-coded secrets
+        # ----------------------------------------------------
+        #
+
+        # Shell environment variables:
+        #
+        # $PASSWORD
+        # ${PASSWORD}
+        #
+        if [[ "$value" =~ ^\$[A-Za-z_][A-Za-z0-9_]*$ ]] ||
+           [[ "$value" =~ ^\$\{[A-Za-z_][A-Za-z0-9_]*\}$ ]]; then
+            continue
+        fi
+
+        #
+        # GitHub Actions:
+        #
+        # ${{ secrets.MY_SECRET }}
+        # ${{ env.PASSWORD }}
+        #
+        if [[ "$value" == *'${{ secrets.'* ]] ||
+           [[ "$value" == *'${{ env.'* ]] ||
+           [[ "$value" == *'${{ vars.'* ]]; then
+            continue
+        fi
+
+        #
+        # Python:
+        #
+        # os.getenv(...)
+        # os.environ[...]
+        # getenv(...)
+        #
+        if [[ "$value" == *"os.getenv("* ]] ||
+           [[ "$value" == *"os.environ["* ]] ||
+           [[ "$value" == *"getenv("* ]]; then
+            continue
+        fi
+
+        #
+        # JavaScript / Node:
+        #
+        # process.env.PASSWORD
+        # process.env["PASSWORD"]
+        #
+        if [[ "$value" == *"process.env."* ]] ||
+           [[ "$value" == *"process.env["* ]]; then
+            continue
+        fi
+
+        #
+        # Common secret-manager/config references
+        #
+        if [[ "$value" == *"secrets."* ]] ||
+           [[ "$value" == *"vault."* ]]; then
+            continue
+        fi
+
+        #
+        # Ignore obvious empty/null placeholders.
+        #
+        if [[ "$value" =~ ^(\"\"|\'\'|null|None|nil)$ ]]; then
+            continue
+        fi
+
+        #
+        # If we reached this point, a secret-looking variable
+        # appears to contain a hard-coded value.
+        #
+        echo "ERROR: Possible hard-coded credential detected:"
+        echo
+        echo "    $line"
+        echo
+        echo "Secret-like variable contains a hard-coded value."
+        echo "Use an environment variable or secret manager instead."
+        echo
+        echo "Commit blocked."
+
+        exit 1
+
+    fi
+
+done <<< "$STAGED_LINES"
+
 
 exit 0
