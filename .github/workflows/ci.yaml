@@ -102,7 +102,7 @@ jobs:
   container-scan:
     name: Container Security
     runs-on: self-hosted
-    needs: [test, sast, sca]
+    needs: [test, sast, sca, secret-scan]
 
     steps:
       - name: Checkout repository
