@@ -92,11 +92,11 @@ jobs:
 
       - name: Build Docker image
         run: |
-          docker build -t devsecops-01:${{ github.sha }} .
+          sudo docker build -t devsecops-01:${{ github.sha }} .
 
       - name: Scan image
         run: |
-          trivy image \
+          sudo trivy image \
             --severity HIGH,CRITICAL \
             --exit-code 1 \
             devsecops-01:${{ github.sha }}
