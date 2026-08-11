@@ -140,3 +140,18 @@ jobs:
              --exit-code 1 \
              --no-progress \
              devsecops-01:${{ github.sha }}
+
+      - name: Generate CycloneDX SBOM
+        run: |
+          trivy image \
+            --format cyclonedx \
+            --output sbom.cdx.json \
+            devsecops-01:${{ github.sha }}
+
+      - name: Upload SBOM artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 
+        with:
+          name: sbom-${{ github.sha }}
+          path: |
+            sbom.cdx.json
+            sbom.spdx.json
