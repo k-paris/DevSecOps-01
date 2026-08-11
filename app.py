@@ -1,4 +1,4 @@
-from flask import Flask, request
+from flask import Flask, render_template, request
 import subprocess
 
 app = Flask(__name__)
@@ -12,7 +12,7 @@ def index():
 @app.route("/hello")
 def hello():
     name = request.args.get("name", "world")
-    return f"Hello, {name}!"
+    return render_template("hello.html", name=name)
 
 
 @app.route("/ping")
