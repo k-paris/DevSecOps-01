@@ -112,7 +112,6 @@ jobs:
           trivy config \
             --severity LOW,MEDIUM,HIGH,CRITICAL \
             --exit-code 1 \
-            --no-progress \
             Dockerfile
 
       - name: Scan image
