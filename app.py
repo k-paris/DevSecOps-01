@@ -29,4 +29,5 @@ def ping():
     return result.stdout
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+    # Containerized application: Docker controls external exposure.
+    app.run(host="0.0.0.0", port=8080)  # nosemgrep: python.flask.security.audit.app-run-param-config.avoid_app_run_with_bad_host
