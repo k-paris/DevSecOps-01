@@ -2,164 +2,198 @@
 
 set -euo pipefail
 
-#
-# 1. Known secret formats
-#
 KNOWN_SECRET_PATTERN='(github_pat_[A-Za-z0-9_]+|ghp_[A-Za-z0-9]+|gho_[A-Za-z0-9]+|ghu_[A-Za-z0-9]+|ghs_[A-Za-z0-9]+|ghr_[A-Za-z0-9]+|AKIA[A-Z0-9]{16}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----)'
 
-#
-# 2. Variable names that commonly contain secrets
-#
-SECRET_NAME_PATTERN='(password|passwd|pass|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|secret[_-]?key|client[_-]?secret|auth[_-]?token)'
+SECRET_NAME_PATTERN='(password|passwd|pass|pwd|secret|token|api[*-]?key|apikey|access[*-]?key|secret[*-]?key|client[*-]?secret|auth[_-]?token)'
 
 #
-# Get only NEW/CHANGED staged lines.
+
+# Get only newly added/changed staged lines.
+
 #
-STAGED_LINES=$(
-    git diff --cached --no-color --unified=0 \
-        | grep -E '^\+' \
-        | grep -Ev '^\+\+\+' \
-        || true
-)
+
+STAGED_LINES="$(
+git diff --cached --no-color --unified=0 |
+grep -E '^+' |
+grep -Ev '^+++' ||
+true
+)"
+
+IN_BLOCK_COMMENT=false
+
+while IFS= read -r line; do
+
+```
+# Remove the leading "+" produced by git diff.
+line="${line#+}"
+
+#
+# Trim leading whitespace only for comment detection.
+#
+trimmed="${line#"${line%%[![:space:]]*}"}"
+
+#
+# ------------------------------------------------------------
+# Ignore comments
+# ------------------------------------------------------------
+#
+
+# We are currently inside a /* ... */ block.
+if [ "$IN_BLOCK_COMMENT" = true ]; then
+    case "$trimmed" in
+        *"*/"*)
+            IN_BLOCK_COMMENT=false
+            ;;
+    esac
+
+    continue
+fi
+
+# Start of /* ... */ block comment.
+case "$trimmed" in
+    "/*"*)
+        case "$trimmed" in
+            *"*/"*)
+                ;;
+            *)
+                IN_BLOCK_COMMENT=true
+                ;;
+        esac
+
+        continue
+        ;;
+esac
+
+# Common single-line comment styles:
+#
+# #   Bash, Python, YAML, Dockerfile
+# //  JavaScript, Java, Go, C, C++
+# --  SQL
+# ;   INI/config files
+#
+case "$trimmed" in
+    \#*|//*|--*|\;*)
+        continue
+        ;;
+esac
 
 #
 # ------------------------------------------------------------
 # Check 1: Known credential formats
 # ------------------------------------------------------------
 #
-KNOWN_MATCHES=$(
-    printf '%s\n' "$STAGED_LINES" \
-        | grep -E "$KNOWN_SECRET_PATTERN" \
-        || true
-)
-
-if [ -n "$KNOWN_MATCHES" ]; then
+if printf '%s\n' "$line" | grep -Eq "$KNOWN_SECRET_PATTERN"; then
     echo "ERROR: Known secret pattern detected:"
     echo
-    echo "$KNOWN_MATCHES"
+    echo "    $line"
     echo
     echo "Commit blocked."
     exit 1
 fi
-
 
 #
 # ------------------------------------------------------------
 # Check 2: Generic hard-coded credentials
 # ------------------------------------------------------------
 #
+# Examples:
+#
+# password = "secret"
+# token = "abcdef"
+# api_key: "123456"
+# client_secret = 'something'
+#
+if printf '%s\n' "$line" |
+    grep -Eiq "[\"']?${SECRET_NAME_PATTERN}[\"']?[[:space:]]*[:=][[:space:]]*.+"
+then
+    #
+    # Everything after the first = or :
+    #
+    value="$(printf '%s\n' "$line" |
+        sed -E 's/^[^:=]*[:=][[:space:]]*//')"
 
-while IFS= read -r line; do
+    # Trim whitespace.
+    value="$(printf '%s' "$value" |
+        sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 
-    # Remove '+' added by git diff
-    line="${line#+}"
-   
-    # Ignore comments
-    if [[ "$line" =~ ^[[:space:]]*# ]]; then
+    #
+    # --------------------------------------------------------
+    # Allowed references — these are not hard-coded values
+    # --------------------------------------------------------
+    #
+
+    # Shell:
+    #
+    # password=$PASSWORD
+    # password=${PASSWORD}
+    #
+    if printf '%s\n' "$value" |
+        grep -Eq '^\$[A-Za-z_][A-Za-z0-9_]*$|^\$\{[A-Za-z_][A-Za-z0-9_]*\}$'
+    then
         continue
     fi
-  
+
+    # GitHub Actions:
     #
-    # Does this line look like:
+    # password: ${{ secrets.PASSWORD }}
+    # token: ${{ env.TOKEN }}
+    # value: ${{ vars.VALUE }}
     #
-    # password = ...
-    # password: ...
-    # "password": ...
+    case "$value" in
+        *'${{ secrets.'*|*'${{ env.'*|*'${{ vars.'*)
+            continue
+            ;;
+    esac
+
+    # Python:
     #
-    if [[ "$line" =~ [\"\']?${SECRET_NAME_PATTERN}[\"\']?[[:space:]]*[:=][[:space:]]*(.+) ]]; then
-
-        value="${BASH_REMATCH[2]}"
-
-        #
-        # Remove leading/trailing whitespace
-        #
-        value="$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-
-        #
-        # ----------------------------------------------------
-        # Allowed references — NOT hard-coded secrets
-        # ----------------------------------------------------
-        #
-
-        # Shell environment variables:
-        #
-        # $PASSWORD
-        # ${PASSWORD}
-        #
-        if [[ "$value" =~ ^\$[A-Za-z_][A-Za-z0-9_]*$ ]] ||
-           [[ "$value" =~ ^\$\{[A-Za-z_][A-Za-z0-9_]*\}$ ]]; then
+    # password = os.getenv("PASSWORD")
+    # token = os.environ["TOKEN"]
+    #
+    case "$value" in
+        *"os.getenv("*|*"os.environ["*|*"getenv("*)
             continue
-        fi
+            ;;
+    esac
 
-        #
-        # GitHub Actions:
-        #
-        # ${{ secrets.MY_SECRET }}
-        # ${{ env.PASSWORD }}
-        #
-        if [[ "$value" == *'${{ secrets.'* ]] ||
-           [[ "$value" == *'${{ env.'* ]] ||
-           [[ "$value" == *'${{ vars.'* ]]; then
+    # JavaScript / Node.js:
+    #
+    # password = process.env.PASSWORD
+    #
+    case "$value" in
+        *"process.env."*|*"process.env["*)
             continue
-        fi
+            ;;
+    esac
 
-        #
-        # Python:
-        #
-        # os.getenv(...)
-        # os.environ[...]
-        # getenv(...)
-        #
-        if [[ "$value" == *"os.getenv("* ]] ||
-           [[ "$value" == *"os.environ["* ]] ||
-           [[ "$value" == *"getenv("* ]]; then
+    # Common secret manager references.
+    case "$value" in
+        *"secrets."*|*"vault."*)
             continue
-        fi
+            ;;
+    esac
 
-        #
-        # JavaScript / Node:
-        #
-        # process.env.PASSWORD
-        # process.env["PASSWORD"]
-        #
-        if [[ "$value" == *"process.env."* ]] ||
-           [[ "$value" == *"process.env["* ]]; then
+    # Empty/null placeholders.
+    case "$value" in
+        '""'|"''"|null|None|nil)
             continue
-        fi
+            ;;
+    esac
 
-        #
-        # Common secret-manager/config references
-        #
-        if [[ "$value" == *"secrets."* ]] ||
-           [[ "$value" == *"vault."* ]]; then
-            continue
-        fi
+    echo "ERROR: Possible hard-coded credential detected:"
+    echo
+    echo "    $line"
+    echo
+    echo "Secret-like variable contains a hard-coded value."
+    echo "Use an environment variable or secret manager instead."
+    echo
+    echo "Commit blocked."
 
-        #
-        # Ignore obvious empty/null placeholders.
-        #
-        if [[ "$value" =~ ^(\"\"|\'\'|null|None|nil)$ ]]; then
-            continue
-        fi
-
-        #
-        # If we reached this point, a secret-looking variable
-        # appears to contain a hard-coded value.
-        #
-        echo "ERROR: Possible hard-coded credential detected:"
-        echo
-        echo "    $line"
-        echo
-        echo "Secret-like variable contains a hard-coded value."
-        echo "Use an environment variable or secret manager instead."
-        echo
-        echo "Commit blocked."
-
-        exit 1
-
-    fi
+    exit 1
+fi
+```
 
 done <<< "$STAGED_LINES"
 
-
 exit 0
+
