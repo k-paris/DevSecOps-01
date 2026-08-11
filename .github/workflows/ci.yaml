@@ -148,6 +148,13 @@ jobs:
             --output sbom.cdx.json \
             devsecops-01:${{ github.sha }}
 
+      - name: Generate SPDX SBOM
+        run: |
+          trivy image \
+          --format spdx-json \
+          --output sbom.spdx.json \
+          devsecops-01:${{ github.sha }}
+     
       - name: Upload SBOM artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 
         with:
