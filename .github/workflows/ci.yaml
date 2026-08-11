@@ -107,6 +107,14 @@ jobs:
 
           echo "Container runs as non-root"
 
+      - name: Scan Dockerfile configuration
+        run: |
+          trivy config \
+            --severity LOW,MEDIUM,HIGH,CRITICAL \
+            --exit-code 1 \
+            --no-progress \
+            Dockerfile
+
       - name: Scan image
         run: |
           trivy image \
