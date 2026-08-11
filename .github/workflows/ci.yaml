@@ -94,6 +94,19 @@ jobs:
         run: |
           docker build -t devsecops-01:${{ github.sha }} .
 
+      - name: Verify container runs as non-root
+        run: |
+          USER_ID=$(docker run --rm devsecops-01:${{ github.sha }} id -u)
+
+          echo "Container UID: $USER_ID"
+
+          if [ "$USER_ID" = "0" ]; then
+            echo "ERROR: Container runs as root"
+            exit 1
+          fi
+
+          echo "Container runs as non-root"
+
       - name: Scan image
         run: |
           trivy image \
