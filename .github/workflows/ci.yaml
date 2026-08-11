@@ -80,3 +80,25 @@ jobs:
       - name: Audit dependencies
         run: |
           pip-audit -r requirements.txt
+
+  container-scan:
+    name: Container Security
+    runs-on: self-hosted
+    needs: [test, sast, sca]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@<SHA>
+
+      - name: Build Docker image
+        run: |
+          docker build -t devsecops-01:${{ github.sha }} .
+
+      - name: Scan image
+        run: |
+          trivy image \
+            --severity HIGH,CRITICAL \
+            --exit-code 1 \
+            devsecops-01:${{ github.sha }}
+
+
