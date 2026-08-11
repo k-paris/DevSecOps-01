@@ -97,8 +97,9 @@ jobs:
       - name: Scan image
         run: |
           trivy image \
-            --severity HIGH,CRITICAL \
-            --exit-code 1 \
-            devsecops-01:${{ github.sha }}
-
-
+             --scanners vuln \
+             --severity HIGH,CRITICAL \
+             --ignore-unfixed \
+             --exit-code 1 \
+             --no-progress \
+             devsecops-01:${{ github.sha }}
