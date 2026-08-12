@@ -20,6 +20,8 @@ RUN pip install \
 ############################
 FROM python:3.12-slim AS runtime
 
+LABEL org.opencontainers.image.source="https://github.com/k-paris/DevSecOps-01"
+
 WORKDIR /app
 
 # Install only OS packages required at runtime

@@ -103,6 +103,10 @@ jobs:
     runs-on: self-hosted
     needs: [test, sast, sca, secret-scan]
 
+    permissions:
+      contents: read
+      packages: write  
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -140,6 +144,23 @@ jobs:
              --exit-code 1 \
              --no-progress \
              devsecops-01:${{ github.sha }}
+      - name: Log in to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | docker login ghcr.io \
+                -u "${{ github.actor }}" \
+                --password-stdin
+
+      - name: Tag image for GHCR
+        run: |
+          docker tag \
+            devsecops-01:${{ github.sha }} \
+            ghcr.io/k-paris/devsecops-01:${{ github.sha }}
+
+      - name: Push image to GHCR
+        run: |
+          docker push \
+            ghcr.io/k-paris/devsecops-01:${{ github.sha }}
 
       - name: Generate CycloneDX SBOM
         run: |
