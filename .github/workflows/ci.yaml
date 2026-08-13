@@ -164,8 +164,14 @@ jobs:
 
       - name: Push image to GHCR
         run: |
-          docker push \
+          docker --config "${{ runner.temp }}/docker-config"  push \
             ghcr.io/k-paris/devsecops-01:${{ github.sha }}
+
+      - name: Logout from GHCR
+        if: always()
+        run: |
+          docker --config "${{ runner.temp  }}/docker-config" logout ghcr.io || true
+          rm -rf "{{ runner.temp }}/docker-config"
 
       - name: Generate CycloneDX SBOM
         run: |
