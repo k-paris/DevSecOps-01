@@ -1,0 +1,42 @@
+# METADATA
+# title: Restrict images to the trusted GHCR namespace
+# description: All containers must use images from ghcr.io/k-paris only.
+# schemas:
+#   - input: schema["kubernetes"]
+# custom:
+#   id: USR-0001
+#   avd_id: USR-0001
+#   severity: MEDIUM
+#   short_code: use-trusted-ghcr-namespace
+#   recommended_action: Use images from ghcr.io/k-paris/.
+#   input:
+#     selector:
+#       - type: kubernetes
+package user.kubernetes.USR0001
+
+import rego.v1
+
+allowed_prefix := "ghcr.io/k-paris/"
+
+# Collect containers from every common workload shape
+container_specs contains c if { some c in input.spec.containers }
+container_specs contains c if { some c in input.spec.initContainers }
+container_specs contains c if { some c in input.spec.ephemeralContainers }
+
+container_specs contains c if { some c in input.spec.template.spec.containers }
+container_specs contains c if { some c in input.spec.template.spec.initContainers }
+container_specs contains c if { some c in input.spec.template.spec.ephemeralContainers }
+
+# CronJob
+container_specs contains c if { some c in input.spec.jobTemplate.spec.template.spec.containers }
+container_specs contains c if { some c in input.spec.jobTemplate.spec.template.spec.initContainers }
+
+deny contains res if {
+    some c in container_specs
+    not startswith(c.image, allowed_prefix)
+    msg := sprintf(
+        "Container '%s' uses image '%s' which is not from the trusted GHCR namespace '%s'",
+        [c.name, c.image, allowed_prefix],
+    )
+    res := result.new(msg, c)
+}

@@ -31,6 +31,7 @@ RUN apt-get update \
 
 # Create dedicated non-root user
 RUN useradd \
+    --uid 1001 \
     --create-home \
     --shell /usr/sbin/nologin \
     appuser

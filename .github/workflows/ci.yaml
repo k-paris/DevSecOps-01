@@ -183,3 +183,35 @@ jobs:
           path: |
             sbom.cdx.json
             sbom.spdx.json
+
+  k8s-security:
+    name: Kubernetes Security
+    runs-on: self-hosted
+    needs: [container-scan]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Lint Helm chart
+        run: |
+          helm lint ./helm/devsecops-01
+
+      - name: Render Kubernetes manifests
+        run: |
+          helm template devsecops-01 ./helm/devsecops-01 \
+            --namespace devsecops \
+            --set image.repository=ghcr.io/k-paris/devsecops-01 \
+            --set image.tag=${{ github.sha }} \
+            > /tmp/devsecops-rendered.yaml
+
+      - name: Scan Kubernetes manifests
+        run: |
+          trivy config \
+            --config-check ./security/trivy/checks \
+            --namespaces builtin \
+            --namespaces user \
+            --ignorefile .trivyignore \
+            --severity LOW,MEDIUM,HIGH,CRITICAL \
+            --exit-code 1 \
+            /tmp/devsecops-rendered.yaml
