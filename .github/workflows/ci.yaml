@@ -144,8 +144,13 @@ jobs:
              --exit-code 1 \
              --no-progress \
              devsecops-01:${{ github.sha }}
+
       - name: Log in to GHCR
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/docker-config
         run: |
+          mkdir -p "$DOCKER_CONFIG"
+
           echo "${{ secrets.GITHUB_TOKEN }}" \
             | docker login ghcr.io \
                 -u "${{ github.actor }}" \
