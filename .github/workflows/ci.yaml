@@ -145,16 +145,20 @@ jobs:
              --no-progress \
              devsecops-01:${{ github.sha }}
 
-      - name: Log in to GHCR
+      - name: Configure temporary GHCR authentication
         env:
           DOCKER_CONFIG: ${{ runner.temp }}/docker-config
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p "$DOCKER_CONFIG"
 
-          echo "${{ secrets.GITHUB_TOKEN }}" \
-            | docker login ghcr.io \
-                -u "${{ github.actor }}" \
-                --password-stdin
+          AUTH="$(printf '%s:%s' "$GHCR_USER" "$GHCR_TOKEN" | base64 -w0)"
+
+          printf '{"auths":{"ghcr.io":{"auth":"%s"}}}\n' "$AUTH" \
+          > "$DOCKER_CONFIG/config.json"
+
+          chmod 600 "$DOCKER_CONFIG/config.json"       
 
       - name: Tag image for GHCR
         run: |
@@ -167,11 +171,10 @@ jobs:
           docker --config "${{ runner.temp }}/docker-config"  push \
             ghcr.io/k-paris/devsecops-01:${{ github.sha }}
 
-      - name: Logout from GHCR
+      - name: Cleanup GHCR creds
         if: always()
         run: |
-          docker --config "${{ runner.temp  }}/docker-config" logout ghcr.io || true
-          rm -rf "{{ runner.temp }}/docker-config"
+          rm -rf "${{ runner.temp }}/docker-config"
 
       - name: Generate CycloneDX SBOM
         run: |
