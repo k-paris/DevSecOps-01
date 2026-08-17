@@ -9,7 +9,7 @@ spec:
 
   source:
     repoURL: https://github.com/k-paris/DevSecOps-01.git
-    targetRevision: main
+    targetRevision: develop
     path: helm/devsecops-01
 
     helm:
