@@ -1,0 +1,6 @@
+replicaCount: 2
+  
+image:
+  repository: ghcr.io/k-paris/devsecops-01
+  tag: "1a65a6d581277790630d27f3aae29e756a690f06"
+  pullPolicy: IfNotPresent
